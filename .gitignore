@@ -1,0 +1,8 @@
+# build directory
+build
+
+# CMake user preset
+CMakeUserPreset.json
+
+# vcpkg binaries
+vcpkg_installed

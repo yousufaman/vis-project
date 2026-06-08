@@ -1,0 +1,12 @@
+NAME
+  VISFilters
+LIBRARY_NAME
+  vtkVISFilters
+DESCRIPTION
+  Example external VTK module containing custom C++ filters for Python pipelines.
+DEPENDS
+  VTK::CommonCore
+  VTK::CommonDataModel
+  VTK::FiltersCore
+  VTK::FiltersGeneral
+  VTK::ImagingCore

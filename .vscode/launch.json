@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug C++ via Python Wrapper",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${command:python.interpreterPath}",
+      "args": [
+        "${workspaceFolder}/python/pipeline_demo.py"
+      ],
+      "cwd": "${workspaceFolder}",
+      "env": {
+        "PYTHONPATH": "${command:cmake.buildDirectory}/python/vtkmodules"
+      },
+      "preLaunchTask": "CMake: build",
+      "sourceLanguages": [
+        "cpp"
+      ]
+    }
+  ]
+}

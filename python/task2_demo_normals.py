@@ -1,5 +1,4 @@
-"""Demo: Side-by-side comparison — Gradient-based Normals vs vtkPolyDataNormals."""
-from __future__ import annotations
+"""Comparing gradient-based normals vs vtkPolyDataNormals post-processing."""
 
 import os
 if os.name == 'nt' and hasattr(os, 'add_dll_directory'):
@@ -18,115 +17,109 @@ from vtkmodules.vtkRenderingCore import (
 import vtkmodules.vtkRenderingOpenGL2  # noqa: F401
 import vtkmodules.vtkInteractionStyle  # noqa: F401
 
-ISOVALUE = 2.0
-DIMS = 60
+ISO = 2.0
 
 
-def make_sample():
+def setup_sample():
+    """Create a superquadric sample volume."""
     fn = vtkSuperquadric()
     fn.SetPhiRoundness(2.5)
     fn.SetThetaRoundness(0.5)
-    sample = vtkSampleFunction()
-    sample.SetImplicitFunction(fn)
-    sample.SetSampleDimensions(DIMS, DIMS, DIMS)
-    sample.SetModelBounds(-2, 2, -2, 2, -2, 2)
-    return sample
+    s = vtkSampleFunction()
+    s.SetImplicitFunction(fn)
+    s.SetSampleDimensions(60, 60, 60)
+    s.SetModelBounds(-2, 2, -2, 2, -2, 2)
+    return s
 
 
-def make_label(text):
-    label = vtkTextActor()
-    label.SetInput(text)
-    label.GetTextProperty().SetFontSize(20)
-    label.GetTextProperty().SetColor(1, 1, 1)
-    label.GetPositionCoordinate().SetCoordinateSystemToNormalizedViewport()
-    label.SetPosition(0.05, 0.05)
-    return label
+def add_label(renderer, text):
+    t = vtkTextActor()
+    t.SetInput(text)
+    t.GetTextProperty().SetFontSize(18)
+    t.GetTextProperty().SetColor(1, 1, 1)
+    t.GetPositionCoordinate().SetCoordinateSystemToNormalizedViewport()
+    t.SetPosition(0.04, 0.04)
+    renderer.AddActor(t)
 
 
-def main() -> None:
+def main():
     colors = vtkNamedColors()
 
-    sample_left  = make_sample()
-    sample_right = make_sample()
+    # Left: gradient normals from our filter directly
+    mc1 = vtkVISMarchingCubes()
+    mc1.SetInputConnection(setup_sample().GetOutputPort())
+    mc1.SetIsovalue(ISO)
+    mc1.MergePointsOn()
+    mc1.ComputeNormalsOn()
 
-    # Left: our Marching Cubes WITH gradient-based normals enabled (ComputeNormalsOn)
-    mc_left = vtkVISMarchingCubes()
-    mc_left.SetInputConnection(sample_left.GetOutputPort())
-    mc_left.SetIsovalue(ISOVALUE)
-    mc_left.MergePointsOn()
-    mc_left.ComputeNormalsOn()
+    m1 = vtkPolyDataMapper()
+    m1.SetInputConnection(mc1.GetOutputPort())
+    m1.ScalarVisibilityOff()
 
-    mapper_left = vtkPolyDataMapper()
-    mapper_left.SetInputConnection(mc_left.GetOutputPort())
-    mapper_left.ScalarVisibilityOff()
-    
-    actor_left = vtkActor()
-    actor_left.SetMapper(mapper_left)
-    actor_left.GetProperty().SetColor(colors.GetColor3d("PeachPuff"))
-    actor_left.GetProperty().SetSpecular(0.4)
-    actor_left.GetProperty().SetSpecularPower(40)
+    a1 = vtkActor()
+    a1.SetMapper(m1)
+    a1.GetProperty().SetColor(colors.GetColor3d("PeachPuff"))
+    a1.GetProperty().SetSpecular(0.4)
+    a1.GetProperty().SetSpecularPower(40)
 
-    # Right: our Marching Cubes WITHOUT gradient normals + vtkPolyDataNormals
-    mc_right = vtkVISMarchingCubes()
-    mc_right.SetInputConnection(sample_right.GetOutputPort())
-    mc_right.SetIsovalue(ISOVALUE)
-    mc_right.MergePointsOn()
-    mc_right.ComputeNormalsOff()
+    # Right: no gradient normals, then run vtkPolyDataNormals on output
+    mc2 = vtkVISMarchingCubes()
+    mc2.SetInputConnection(setup_sample().GetOutputPort())
+    mc2.SetIsovalue(ISO)
+    mc2.MergePointsOn()
+    mc2.ComputeNormalsOff()
 
-    cf = vtkPolyDataNormals()
-    cf.SetInputConnection(mc_right.GetOutputPort())
-    cf.SetFeatureAngle(60.0)
+    pdn = vtkPolyDataNormals()
+    pdn.SetInputConnection(mc2.GetOutputPort())
+    pdn.SetFeatureAngle(60.0)
 
-    mapper_right = vtkPolyDataMapper()
-    mapper_right.SetInputConnection(cf.GetOutputPort())
-    mapper_right.ScalarVisibilityOff()
+    m2 = vtkPolyDataMapper()
+    m2.SetInputConnection(pdn.GetOutputPort())
+    m2.ScalarVisibilityOff()
 
-    actor_right = vtkActor()
-    actor_right.SetMapper(mapper_right)
-    actor_right.GetProperty().SetColor(colors.GetColor3d("LightSkyBlue"))
-    actor_right.GetProperty().SetSpecular(0.4)
-    actor_right.GetProperty().SetSpecularPower(40)
+    a2 = vtkActor()
+    a2.SetMapper(m2)
+    a2.GetProperty().SetColor(colors.GetColor3d("LightSkyBlue"))
+    a2.GetProperty().SetSpecular(0.4)
+    a2.GetProperty().SetSpecularPower(40)
 
-    # Renderers with split viewports
-    ren_left  = vtkRenderer()
-    ren_right = vtkRenderer()
-    ren_left.SetViewport(0.0, 0.0, 0.5, 1.0)
-    ren_right.SetViewport(0.5, 0.0, 1.0, 1.0)
+    # set up side-by-side renderers
+    ren1 = vtkRenderer()
+    ren2 = vtkRenderer()
+    ren1.SetViewport(0, 0, 0.5, 1)
+    ren2.SetViewport(0.5, 0, 1, 1)
 
-    ren_left.AddActor(actor_left)
-    ren_left.AddActor(make_label("Gradient-Based Normals (ComputeNormals=On)"))
-    ren_left.SetBackground(colors.GetColor3d("DarkSlateGray"))
+    ren1.AddActor(a1)
+    ren1.SetBackground(0.12, 0.15, 0.18)
+    add_label(ren1, "Gradient Normals (ComputeNormals=On)")
 
-    ren_right.AddActor(actor_right)
-    ren_right.AddActor(make_label("vtkPolyDataNormals (ComputeNormals=Off)"))
-    ren_right.SetBackground(colors.GetColor3d("DarkSlateBlue"))
+    ren2.AddActor(a2)
+    ren2.SetBackground(0.14, 0.12, 0.2)
+    add_label(ren2, "vtkPolyDataNormals (post-process)")
 
-    for ren in (ren_left, ren_right):
-        ren.ResetCamera()
-        ren.GetActiveCamera().Elevation(20)
-        ren.GetActiveCamera().Azimuth(30)
+    for r in [ren1, ren2]:
+        r.ResetCamera()
+        cam = r.GetActiveCamera()
+        cam.Elevation(20)
+        cam.Azimuth(30)
 
-    window = vtkRenderWindow()
-    window.AddRenderer(ren_left)
-    window.AddRenderer(ren_right)
-    window.SetSize(1400, 700)
-    window.SetWindowName("Normals Comparison: Gradient vs vtkPolyDataNormals")
+    win = vtkRenderWindow()
+    win.AddRenderer(ren1)
+    win.AddRenderer(ren2)
+    win.SetSize(1400, 700)
+    win.SetWindowName("Normals Comparison")
 
-    interactor = vtkRenderWindowInteractor()
-    interactor.SetRenderWindow(window)
+    iren = vtkRenderWindowInteractor()
+    iren.SetRenderWindow(win)
+    win.Render()
 
-    window.Render()
+    mc1.Update()
+    mc2.Update()
+    pdn.Update()
+    print(f"Gradient normals: {mc1.GetOutput().GetNumberOfPoints()} pts, {mc1.GetOutput().GetNumberOfCells()} tris")
+    print(f"PolyDataNormals:  {pdn.GetOutput().GetNumberOfPoints()} pts, {pdn.GetOutput().GetNumberOfCells()} tris")
 
-    # Print point/triangle counts for comparison
-    mc_left.Update()
-    mc_right.Update()
-    cf.Update()
-    print(f"Gradient Normals: points={mc_left.GetOutput().GetNumberOfPoints():>7}  "
-          f"triangles={mc_left.GetOutput().GetNumberOfCells():>7}")
-    print(f"vtkPolyDataNormals: points={cf.GetOutput().GetNumberOfPoints():>7}  "
-          f"triangles={cf.GetOutput().GetNumberOfCells():>7}")
-
-    interactor.Start()
+    iren.Start()
 
 
 if __name__ == "__main__":

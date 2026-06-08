@@ -1,5 +1,4 @@
-"""Demo 1: Single isosurface extracted by vtkVISMarchingCubes."""
-from __future__ import annotations
+"""Single isosurface demo using our marching cubes filter."""
 
 import os
 if os.name == 'nt' and hasattr(os, 'add_dll_directory'):
@@ -15,14 +14,14 @@ from vtkmodules.vtkRenderingCore import (
     vtkActor, vtkPolyDataMapper, vtkRenderer, vtkRenderWindow,
     vtkRenderWindowInteractor,
 )
-import vtkmodules.vtkRenderingOpenGL2  # noqa: F401 – registers the OpenGL backend
-import vtkmodules.vtkInteractionStyle   # noqa: F401 – registers trackball interactor
+import vtkmodules.vtkRenderingOpenGL2  # noqa: F401
+import vtkmodules.vtkInteractionStyle  # noqa: F401
 
 
-def main() -> None:
+def main():
     colors = vtkNamedColors()
 
-    # --- Source: sample a superquadric implicit function on a 3-D grid ---
+    # sample a superquadric on a grid
     fn = vtkSuperquadric()
     fn.SetPhiRoundness(2.5)
     fn.SetThetaRoundness(0.5)
@@ -32,12 +31,11 @@ def main() -> None:
     sample.SetSampleDimensions(60, 60, 60)
     sample.SetModelBounds(-2, 2, -2, 2, -2, 2)
 
-    # --- Our Marching Cubes filter ---
+    # run our filter
     mc = vtkVISMarchingCubes()
     mc.SetInputConnection(sample.GetOutputPort())
     mc.SetIsovalue(2.0)
 
-    # Smooth the surface normals a bit for nicer shading
     smooth = vtkPolyDataNormals()
     smooth.SetInputConnection(mc.GetOutputPort())
     smooth.SetFeatureAngle(60.0)
@@ -62,14 +60,10 @@ def main() -> None:
     window = vtkRenderWindow()
     window.AddRenderer(renderer)
     window.SetSize(800, 600)
-    window.SetWindowName("vtkVISMarchingCubes — Single Isosurface")
+    window.SetWindowName("vtkVISMarchingCubes - Single Isosurface")
 
     interactor = vtkRenderWindowInteractor()
     interactor.SetRenderWindow(window)
-    interactor.SetInteractorStyle(
-        __import__("vtkmodules.vtkInteractionStyle", fromlist=["vtkInteractorStyleTrackballCamera"])
-        .vtkInteractorStyleTrackballCamera()
-    )
 
     window.Render()
     interactor.Start()

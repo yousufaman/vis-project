@@ -1,5 +1,4 @@
-"""Demo 2: Side-by-side comparison — vtkVISMarchingCubes vs vtkContourFilter."""
-from __future__ import annotations
+"""Side-by-side comparison of our marching cubes vs VTK's built-in."""
 
 import os
 if os.name == 'nt' and hasattr(os, 'add_dll_directory'):
@@ -18,102 +17,114 @@ from vtkmodules.vtkRenderingCore import (
 import vtkmodules.vtkRenderingOpenGL2  # noqa: F401
 import vtkmodules.vtkInteractionStyle  # noqa: F401
 
-ISOVALUE = 2.0
-DIMS = 60
 
+def main():
+    colors = vtkNamedColors()
 
-def make_sample():
+    # set up the implicit function to sample
     fn = vtkSuperquadric()
     fn.SetPhiRoundness(2.5)
     fn.SetThetaRoundness(0.5)
-    sample = vtkSampleFunction()
-    sample.SetImplicitFunction(fn)
-    sample.SetSampleDimensions(DIMS, DIMS, DIMS)
-    sample.SetModelBounds(-2, 2, -2, 2, -2, 2)
-    return sample
 
+    sample1 = vtkSampleFunction()
+    sample1.SetImplicitFunction(fn)
+    sample1.SetSampleDimensions(60, 60, 60)
+    sample1.SetModelBounds(-2, 2, -2, 2, -2, 2)
 
-def make_actor(pipeline_end, color):
-    smooth = vtkPolyDataNormals()
-    smooth.SetInputConnection(pipeline_end.GetOutputPort())
-    smooth.SetFeatureAngle(60.0)
-    mapper = vtkPolyDataMapper()
-    mapper.SetInputConnection(smooth.GetOutputPort())
-    mapper.ScalarVisibilityOff()
-    actor = vtkActor()
-    actor.SetMapper(mapper)
-    actor.GetProperty().SetColor(color)
-    actor.GetProperty().SetSpecular(0.4)
-    actor.GetProperty().SetSpecularPower(40)
-    return actor
+    sample2 = vtkSampleFunction()
+    sample2.SetImplicitFunction(fn)
+    sample2.SetSampleDimensions(60, 60, 60)
+    sample2.SetModelBounds(-2, 2, -2, 2, -2, 2)
 
+    iso = 2.0
 
-def make_label(text):
-    label = vtkTextActor()
-    label.SetInput(text)
-    label.GetTextProperty().SetFontSize(20)
-    label.GetTextProperty().SetColor(1, 1, 1)
-    label.GetPositionCoordinate().SetCoordinateSystemToNormalizedViewport()
-    label.SetPosition(0.05, 0.05)
-    return label
-
-
-def main() -> None:
-    colors = vtkNamedColors()
-
-    # Shared volume source — used by both pipelines
-    sample_left  = make_sample()
-    sample_right = make_sample()
-
-    # Left: our Marching Cubes
+    # --- left side: our implementation ---
     mc = vtkVISMarchingCubes()
-    mc.SetInputConnection(sample_left.GetOutputPort())
-    mc.SetIsovalue(ISOVALUE)
-    actor_left = make_actor(mc, colors.GetColor3d("PeachPuff"))
+    mc.SetInputConnection(sample1.GetOutputPort())
+    mc.SetIsovalue(iso)
 
-    # Right: VTK's built-in ContourFilter
+    smooth_left = vtkPolyDataNormals()
+    smooth_left.SetInputConnection(mc.GetOutputPort())
+    smooth_left.SetFeatureAngle(60.0)
+
+    mapper_l = vtkPolyDataMapper()
+    mapper_l.SetInputConnection(smooth_left.GetOutputPort())
+    mapper_l.ScalarVisibilityOff()
+
+    actor_l = vtkActor()
+    actor_l.SetMapper(mapper_l)
+    actor_l.GetProperty().SetColor(colors.GetColor3d("PeachPuff"))
+    actor_l.GetProperty().SetSpecular(0.4)
+    actor_l.GetProperty().SetSpecularPower(40)
+
+    # --- right side: vtk contour filter ---
     cf = vtkContourFilter()
-    cf.SetInputConnection(sample_right.GetOutputPort())
-    cf.SetValue(0, ISOVALUE)
-    actor_right = make_actor(cf, colors.GetColor3d("LightSkyBlue"))
+    cf.SetInputConnection(sample2.GetOutputPort())
+    cf.SetValue(0, iso)
 
-    # Renderers with split viewports
-    ren_left  = vtkRenderer()
+    smooth_right = vtkPolyDataNormals()
+    smooth_right.SetInputConnection(cf.GetOutputPort())
+    smooth_right.SetFeatureAngle(60.0)
+
+    mapper_r = vtkPolyDataMapper()
+    mapper_r.SetInputConnection(smooth_right.GetOutputPort())
+    mapper_r.ScalarVisibilityOff()
+
+    actor_r = vtkActor()
+    actor_r.SetMapper(mapper_r)
+    actor_r.GetProperty().SetColor(colors.GetColor3d("CornflowerBlue"))
+    actor_r.GetProperty().SetSpecular(0.3)
+    actor_r.GetProperty().SetSpecularPower(30)
+
+    # labels
+    lbl_left = vtkTextActor()
+    lbl_left.SetInput("vtkVISMarchingCubes (ours)")
+    lbl_left.GetTextProperty().SetFontSize(20)
+    lbl_left.GetTextProperty().SetColor(1, 1, 1)
+    lbl_left.GetPositionCoordinate().SetCoordinateSystemToNormalizedViewport()
+    lbl_left.SetPosition(0.05, 0.05)
+
+    lbl_right = vtkTextActor()
+    lbl_right.SetInput("vtkContourFilter (VTK)")
+    lbl_right.GetTextProperty().SetFontSize(20)
+    lbl_right.GetTextProperty().SetColor(1, 1, 1)
+    lbl_right.GetPositionCoordinate().SetCoordinateSystemToNormalizedViewport()
+    lbl_right.SetPosition(0.05, 0.05)
+
+    # renderers
+    ren_left = vtkRenderer()
     ren_right = vtkRenderer()
     ren_left.SetViewport(0.0, 0.0, 0.5, 1.0)
     ren_right.SetViewport(0.5, 0.0, 1.0, 1.0)
 
-    ren_left.AddActor(actor_left)
-    ren_left.AddActor(make_label("vtkVISMarchingCubes (ours)"))
+    ren_left.AddActor(actor_l)
+    ren_left.AddActor(lbl_left)
     ren_left.SetBackground(colors.GetColor3d("DarkSlateGray"))
 
-    ren_right.AddActor(actor_right)
-    ren_right.AddActor(make_label("vtkContourFilter (VTK built-in)"))
-    ren_right.SetBackground(colors.GetColor3d("DarkSlateBlue"))
+    ren_right.AddActor(actor_r)
+    ren_right.AddActor(lbl_right)
+    ren_right.SetBackground(0.15, 0.15, 0.25)
 
-    for ren in (ren_left, ren_right):
-        ren.ResetCamera()
-        ren.GetActiveCamera().Elevation(20)
-        ren.GetActiveCamera().Azimuth(30)
+    for r in (ren_left, ren_right):
+        r.ResetCamera()
+        r.GetActiveCamera().Elevation(20)
+        r.GetActiveCamera().Azimuth(30)
 
     window = vtkRenderWindow()
     window.AddRenderer(ren_left)
     window.AddRenderer(ren_right)
     window.SetSize(1400, 700)
-    window.SetWindowName("Marching Cubes Comparison: Ours vs VTK ContourFilter")
+    window.SetWindowName("Marching Cubes Comparison")
 
     interactor = vtkRenderWindowInteractor()
     interactor.SetRenderWindow(window)
 
     window.Render()
 
-    # Print point/triangle counts for comparison
     mc.Update()
     cf.Update()
-    print(f"Our MC:          points={mc.GetOutput().GetNumberOfPoints():>7}  "
-          f"triangles={mc.GetOutput().GetNumberOfCells():>7}")
-    print(f"vtkContourFilter: points={cf.GetOutput().GetNumberOfPoints():>7}  "
-          f"triangles={cf.GetOutput().GetNumberOfCells():>7}")
+    print(f"Our MC:  {mc.GetOutput().GetNumberOfPoints()} pts, {mc.GetOutput().GetNumberOfCells()} tris")
+    print(f"VTK CF:  {cf.GetOutput().GetNumberOfPoints()} pts, {cf.GetOutput().GetNumberOfCells()} tris")
 
     interactor.Start()
 

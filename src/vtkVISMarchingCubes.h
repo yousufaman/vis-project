@@ -6,29 +6,9 @@
 #include <vtkPolyDataAlgorithm.h>
 #include <vector>
 
-/**
- * @brief Marching Cubes isosurface filter (VIS course implementation).
- *
- * Extracts a single isosurface from a 3D scalar field (vtkImageData) at a
- * user-specified isovalue and outputs a vtkPolyData triangle mesh.
- *
- * Algorithm: Lorensen & Cline, SIGGRAPH 1987.
- *   - Each voxel cell is classified by an 8-bit vertex mask (inside/outside).
- *   - A 256-entry edge table identifies which of the 12 edges are cut.
- *   - Edge intersection positions are computed by linear interpolation.
- *   - A triangle table maps each configuration to a triangle list.
- *   - Per-vertex normals are estimated from the central-difference gradient.
- *
- * Usage (Python):
- * @code
- *   from vtkVISFilters import vtkVISMarchingCubes
- *   mc = vtkVISMarchingCubes()
- *   mc.SetInputConnection(reader.GetOutputPort())
- *   mc.SetIsovalue(128.0)
- *   mc.Update()
- *   polydata = mc.GetOutput()
- * @endcode
- */
+// Marching Cubes filter for extracting isosurfaces from vtkImageData.
+// Based on Lorensen & Cline (1987). Supports optional gradient normals,
+// point merging, and span space acceleration.
 class VTKVISFILTERS_EXPORT vtkVISMarchingCubes : public vtkPolyDataAlgorithm
 {
 public:

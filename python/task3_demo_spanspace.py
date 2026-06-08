@@ -1,5 +1,4 @@
-"""Demo 3: Side-by-side comparison — Baseline vs Span Space Accelerated."""
-from __future__ import annotations
+"""Task 3: visual + timing comparison of baseline vs span space acceleration."""
 
 import os
 import time
@@ -18,121 +17,117 @@ from vtkmodules.vtkRenderingCore import (
 import vtkmodules.vtkRenderingOpenGL2  # noqa: F401
 import vtkmodules.vtkInteractionStyle  # noqa: F401
 
-ISOVALUE = 2.0
-DIMS = 60
+
+def build_pipeline(source, isovalue, use_span):
+    """Build MC pipeline with or without span space."""
+    mc = vtkVISMarchingCubes()
+    mc.SetInputConnection(source.GetOutputPort())
+    mc.SetIsovalue(isovalue)
+    mc.MergePointsOn()
+    mc.ComputeNormalsOn()
+    if use_span:
+        mc.UseSpanSpaceOn()
+    else:
+        mc.UseSpanSpaceOff()
+
+    mapper = vtkPolyDataMapper()
+    mapper.SetInputConnection(mc.GetOutputPort())
+    mapper.ScalarVisibilityOff()
+
+    actor = vtkActor()
+    actor.SetMapper(mapper)
+    return mc, actor
 
 
-def make_sample():
+def main():
+    colors = vtkNamedColors()
+    ISO = 2.0
+
+    # create two separate sample volumes
     fn = vtkSuperquadric()
     fn.SetPhiRoundness(2.5)
     fn.SetThetaRoundness(0.5)
-    sample = vtkSampleFunction()
-    sample.SetImplicitFunction(fn)
-    sample.SetSampleDimensions(DIMS, DIMS, DIMS)
-    sample.SetModelBounds(-2, 2, -2, 2, -2, 2)
-    return sample
 
+    def make_vol():
+        s = vtkSampleFunction()
+        s.SetImplicitFunction(fn)
+        s.SetSampleDimensions(60, 60, 60)
+        s.SetModelBounds(-2, 2, -2, 2, -2, 2)
+        return s
 
-def make_actor(pipeline_end, color):
-    mapper = vtkPolyDataMapper()
-    mapper.SetInputConnection(pipeline_end.GetOutputPort())
-    mapper.ScalarVisibilityOff()
-    actor = vtkActor()
-    actor.SetMapper(mapper)
-    actor.GetProperty().SetColor(color)
-    actor.GetProperty().SetSpecular(0.4)
-    actor.GetProperty().SetSpecularPower(40)
-    return actor
+    mc_base, actor_base = build_pipeline(make_vol(), ISO, use_span=False)
+    mc_span, actor_span = build_pipeline(make_vol(), ISO, use_span=True)
 
+    actor_base.GetProperty().SetColor(colors.GetColor3d("PeachPuff"))
+    actor_base.GetProperty().SetSpecular(0.3)
+    actor_base.GetProperty().SetSpecularPower(30)
 
-def make_label(text):
-    label = vtkTextActor()
-    label.SetInput(text)
-    label.GetTextProperty().SetFontSize(20)
-    label.GetTextProperty().SetColor(1, 1, 1)
-    label.GetPositionCoordinate().SetCoordinateSystemToNormalizedViewport()
-    label.SetPosition(0.05, 0.05)
-    return label
+    actor_span.GetProperty().SetColor(colors.GetColor3d("LightBlue"))
+    actor_span.GetProperty().SetSpecular(0.3)
+    actor_span.GetProperty().SetSpecularPower(30)
 
+    # viewports
+    ren_l = vtkRenderer()
+    ren_r = vtkRenderer()
+    ren_l.SetViewport(0, 0, 0.5, 1)
+    ren_r.SetViewport(0.5, 0, 1, 1)
 
-def main() -> None:
-    colors = vtkNamedColors()
+    ren_l.AddActor(actor_base)
+    ren_l.SetBackground(0.12, 0.14, 0.18)
 
-    sample_left  = make_sample()
-    sample_right = make_sample()
+    ren_r.AddActor(actor_span)
+    ren_r.SetBackground(0.14, 0.12, 0.22)
 
-    # Left: Baseline (UseSpanSpaceOff)
-    mc_left = vtkVISMarchingCubes()
-    mc_left.SetInputConnection(sample_left.GetOutputPort())
-    mc_left.SetIsovalue(ISOVALUE)
-    mc_left.MergePointsOn()
-    mc_left.ComputeNormalsOn()
-    mc_left.UseSpanSpaceOff()
-    
-    actor_left = make_actor(mc_left, colors.GetColor3d("PeachPuff"))
+    # quick label helper
+    for ren, txt in [(ren_l, "Baseline"), (ren_r, "Span Space")]:
+        lbl = vtkTextActor()
+        lbl.SetInput(txt)
+        lbl.GetTextProperty().SetFontSize(20)
+        lbl.GetTextProperty().SetColor(1, 1, 1)
+        lbl.GetPositionCoordinate().SetCoordinateSystemToNormalizedViewport()
+        lbl.SetPosition(0.05, 0.05)
+        ren.AddActor(lbl)
 
-    # Right: Accelerated (UseSpanSpaceOn)
-    mc_right = vtkVISMarchingCubes()
-    mc_right.SetInputConnection(sample_right.GetOutputPort())
-    mc_right.SetIsovalue(ISOVALUE)
-    mc_right.MergePointsOn()
-    mc_right.ComputeNormalsOn()
-    mc_right.UseSpanSpaceOn()
-    
-    actor_right = make_actor(mc_right, colors.GetColor3d("LightSkyBlue"))
+    for r in (ren_l, ren_r):
+        r.ResetCamera()
+        r.GetActiveCamera().Elevation(20)
+        r.GetActiveCamera().Azimuth(30)
 
-    # Renderers with split viewports
-    ren_left  = vtkRenderer()
-    ren_right = vtkRenderer()
-    ren_left.SetViewport(0.0, 0.0, 0.5, 1.0)
-    ren_right.SetViewport(0.5, 0.0, 1.0, 1.0)
+    win = vtkRenderWindow()
+    win.AddRenderer(ren_l)
+    win.AddRenderer(ren_r)
+    win.SetSize(1400, 700)
+    win.SetWindowName("Task 3: Span Space Acceleration")
 
-    ren_left.AddActor(actor_left)
-    ren_left.AddActor(make_label("Baseline (UseSpanSpace=Off)"))
-    ren_left.SetBackground(colors.GetColor3d("DarkSlateGray"))
+    iren = vtkRenderWindowInteractor()
+    iren.SetRenderWindow(win)
 
-    ren_right.AddActor(actor_right)
-    ren_right.AddActor(make_label("Accelerated (UseSpanSpace=On)"))
-    ren_right.SetBackground(colors.GetColor3d("DarkSlateBlue"))
+    # warm up both pipelines first
+    print("Warming up...")
+    mc_base.Update()
+    mc_span.Update()
 
-    for ren in (ren_left, ren_right):
-        ren.ResetCamera()
-        ren.GetActiveCamera().Elevation(20)
-        ren.GetActiveCamera().Azimuth(30)
+    # now time with a different isovalue
+    test_iso = 1.0
+    print(f"\nTiming at isovalue {test_iso}:")
 
-    window = vtkRenderWindow()
-    window.AddRenderer(ren_left)
-    window.AddRenderer(ren_right)
-    window.SetSize(1400, 700)
-    window.SetWindowName("Task 3: Span Space Acceleration Comparison")
-
-    interactor = vtkRenderWindowInteractor()
-    interactor.SetRenderWindow(window)
-
-    # First update: pre-caches the span space on the right side
-    print("Pre-caching pipelines...")
-    mc_left.Update()
-    mc_right.Update()
-
-    # Measure time for a new isovalue
-    NEW_ISO = 1.0
-    print(f"\nEvaluating extraction at new isovalue: {NEW_ISO}")
-    
-    mc_left.SetIsovalue(NEW_ISO)
+    mc_base.SetIsovalue(test_iso)
     t0 = time.time()
-    mc_left.Update()
-    t_base = time.time() - t0
+    mc_base.Update()
+    dt_base = time.time() - t0
 
-    mc_right.SetIsovalue(NEW_ISO)
+    mc_span.SetIsovalue(test_iso)
     t0 = time.time()
-    mc_right.Update()
-    t_span = time.time() - t0
+    mc_span.Update()
+    dt_span = time.time() - t0
 
-    print(f"Baseline:     time={t_base:.4f}s  points={mc_left.GetOutput().GetNumberOfPoints():>7}  triangles={mc_left.GetOutput().GetNumberOfCells():>7}")
-    print(f"Span Space:   time={t_span:.4f}s  points={mc_right.GetOutput().GetNumberOfPoints():>7}  triangles={mc_right.GetOutput().GetNumberOfCells():>7}")
+    out_b = mc_base.GetOutput()
+    out_s = mc_span.GetOutput()
+    print(f"  Baseline:   {dt_base*1000:.1f} ms  ({out_b.GetNumberOfPoints()} pts, {out_b.GetNumberOfCells()} tris)")
+    print(f"  Span Space: {dt_span*1000:.1f} ms  ({out_s.GetNumberOfPoints()} pts, {out_s.GetNumberOfCells()} tris)")
 
-    window.Render()
-    interactor.Start()
+    win.Render()
+    iren.Start()
 
 
 if __name__ == "__main__":

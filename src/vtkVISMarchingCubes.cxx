@@ -40,12 +40,7 @@ int vtkVISMarchingCubes::FillInputPortInformation(int, vtkInformation* info)
   return 1;
 }
 
-// ---------------------------------------------------------------------------
-// Helper: linear interpolation along one edge.
-// v0, v1 — world-space coordinates of the two endpoints
-// s0, s1 — scalar values at those endpoints
-// iso    — isovalue
-// out    — interpolated point written here
+// lerp the intersection point along an edge
 static void interpolate(
   const double v0[3], const double v1[3],
   double s0, double s1, double iso, double out[3])
@@ -57,8 +52,7 @@ static void interpolate(
   out[2] = v0[2] + t * (v1[2] - v0[2]);
 }
 
-// ---------------------------------------------------------------------------
-// Helper: central-difference gradient at grid point (i,j,k).
+// central-difference gradient for normal estimation
 static void gradient(vtkDataArray* sc, const int dims[3],
   const double sp[3], int i, int j, int k, double g[3])
 {
@@ -76,7 +70,7 @@ static void gradient(vtkDataArray* sc, const int dims[3],
          / ((iz1 - iz0) * sp[2] + 1e-30);
 }
 
-// ---------------------------------------------------------------------------
+
 int vtkVISMarchingCubes::RequestData(
   vtkInformation*,
   vtkInformationVector** inputVector,
@@ -104,14 +98,12 @@ int vtkVISMarchingCubes::RequestData(
   input->GetOrigin(origin);
   input->GetSpacing(spacing);
 
-  // Cube vertex offsets (Lorensen & Cline ordering):
-  //   v0=(i,j,k)  v1=(i+1,j,k)  v2=(i+1,j+1,k)  v3=(i,j+1,k)
-  //   v4=(i,j,k+1) v5=(i+1,j,k+1) v6=(i+1,j+1,k+1) v7=(i,j+1,k+1)
+  // vertex offsets for the 8 corners of a cube
   static const int vOff[8][3] = {
     {0,0,0},{1,0,0},{1,1,0},{0,1,0},
     {0,0,1},{1,0,1},{1,1,1},{0,1,1}
   };
-  // Which two vertices each of the 12 edges connects
+  // edge-to-vertex mapping
   static const int edgeVerts[12][2] = {
     {0,1},{1,2},{2,3},{3,0},
     {4,5},{5,6},{6,7},{7,4},
@@ -139,10 +131,10 @@ int vtkVISMarchingCubes::RequestData(
   const double iso = this->Isovalue;
 
   auto processCell = [&](int i, int j, int k) {
-    // Gather scalar values and world positions of the 8 cube corners
+    // gather corner scalars + positions
     double s[8];
     double p[8][3];
-    double g[8][3]; // gradients for normal computation
+    double g[8][3];
     int cubeIndex = 0;
     for (int v = 0; v < 8; ++v)
     {
@@ -160,22 +152,21 @@ int vtkVISMarchingCubes::RequestData(
 
     if (edgeTable[cubeIndex] == 0) return; // no intersection
 
-    // Compute intersection point on each of the (up to 12) cut edges
-    double ep[12][3]; // edge intersection positions
-    double en[12][3]; // interpolated normals at those positions
+    // find intersection points on cut edges
+    double ep[12][3];
+    double en[12][3];
     for (int e = 0; e < 12; ++e)
     {
       if (!(edgeTable[cubeIndex] & (1 << e))) continue;
       int a = edgeVerts[e][0], b = edgeVerts[e][1];
       interpolate(p[a], p[b], s[a], s[b], iso, ep[e]);
-      // Interpolate gradient
       double denom = s[b] - s[a];
       double t = (std::abs(denom) < 1e-10) ? 0.5 : (iso - s[a]) / denom;
       for (int d = 0; d < 3; ++d)
         en[e][d] = g[a][d] + t * (g[b][d] - g[a][d]);
     }
 
-    // Emit triangles according to triangle table
+    // emit triangles
     for (int t = 0; triTable[cubeIndex][t] != -1; t += 3)
     {
       vtkIdType tri[3];

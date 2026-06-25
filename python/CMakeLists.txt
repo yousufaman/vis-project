@@ -46,6 +46,18 @@ configure_file(
   COPYONLY
 )
 
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/task5_controlled_benchmark.py"
+  "${CMAKE_CURRENT_BINARY_DIR}/task5_controlled_benchmark.py"
+  COPYONLY
+)
+
+configure_file(
+  "${CMAKE_CURRENT_SOURCE_DIR}/task6_accuracy_benchmark.py"
+  "${CMAKE_CURRENT_BINARY_DIR}/task6_accuracy_benchmark.py"
+  COPYONLY
+)
+
 install(
   FILES
     "${CMAKE_CURRENT_SOURCE_DIR}/pipeline_demo.py"
@@ -56,5 +68,7 @@ install(
     "${CMAKE_CURRENT_SOURCE_DIR}/task2_demo_normals.py"
     "${CMAKE_CURRENT_SOURCE_DIR}/task3_demo_spanspace.py"
     "${CMAKE_CURRENT_SOURCE_DIR}/task4_evaluation_sweep.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/task5_controlled_benchmark.py"
+    "${CMAKE_CURRENT_SOURCE_DIR}/task6_accuracy_benchmark.py"
   DESTINATION "${CMAKE_INSTALL_DATADIR}/VISVTKFilters/python"
 )

@@ -1,7 +1,13 @@
 #include "vtkVISMarchingCubes.h"
 #include "mc_tables.h"
+#include "mc33_tables.h"
 
+#include <vtkSMPTools.h>
+#include <vtkSMPThreadLocalObject.h>
+#include <vtkAppendPolyData.h>
+#include <vtkCleanPolyData.h>
 #include <vtkMergePoints.h>
+
 
 #include <vtkCellArray.h>
 #include <vtkDataArray.h>
@@ -32,6 +38,8 @@ void vtkVISMarchingCubes::PrintSelf(ostream& os, vtkIndent indent)
   os << indent << "ComputeNormals: " << (this->ComputeNormals ? "On" : "Off") << "\n";
   os << indent << "MergePoints: " << (this->MergePoints ? "On" : "Off") << "\n";
   os << indent << "UseSpanSpace: " << (this->UseSpanSpace ? "On" : "Off") << "\n";
+  os << indent << "ComputeTopologicallyCorrect: " << (this->ComputeTopologicallyCorrect ? "On" : "Off") << "\n";
+  os << indent << "UseParallel: " << (this->UseParallel ? "On" : "Off") << "\n";
 }
 
 int vtkVISMarchingCubes::FillInputPortInformation(int, vtkInformation* info)
@@ -70,6 +78,120 @@ static void gradient(vtkDataArray* sc, const int dims[3],
          / ((iz1 - iz0) * sp[2] + 1e-30);
 }
 
+
+struct ParallelMCWorker {
+  vtkImageData* Input;
+  vtkPolyData* Output;
+  double Isovalue;
+  bool ComputeNormals;
+  int dims[3];
+  double origin[3];
+  double spacing[3];
+  vtkDataArray* scalars;
+
+  struct ThreadLocalData {
+    vtkSmartPointer<vtkPoints> Points;
+    vtkSmartPointer<vtkCellArray> Polys;
+    vtkSmartPointer<vtkFloatArray> Normals;
+  };
+  vtkSMPThreadLocal<ThreadLocalData> TLData;
+
+  void Initialize() {
+    auto& data = this->TLData.Local();
+    data.Points = vtkSmartPointer<vtkPoints>::New();
+    data.Polys = vtkSmartPointer<vtkCellArray>::New();
+    data.Normals = vtkSmartPointer<vtkFloatArray>::New();
+    data.Normals->SetName("Normals");
+    data.Normals->SetNumberOfComponents(3);
+  }
+
+  void operator()(vtkIdType begin, vtkIdType end) {
+    auto& data = this->TLData.Local();
+    static const int vOff[8][3] = {
+      {0,0,0},{1,0,0},{1,1,0},{0,1,0},
+      {0,0,1},{1,0,1},{1,1,1},{0,1,1}
+    };
+    static const int edgeVerts[12][2] = {
+      {0,1},{1,2},{2,3},{3,0},
+      {4,5},{5,6},{6,7},{7,4},
+      {0,4},{1,5},{2,6},{3,7}
+    };
+
+    for (vtkIdType cellIdx = begin; cellIdx < end; ++cellIdx) {
+      int i = cellIdx % (dims[0] - 1);
+      int j = (cellIdx / (dims[0] - 1)) % (dims[1] - 1);
+      int k = cellIdx / ((dims[0] - 1) * (dims[1] - 1));
+
+      double s[8];
+      double p[8][3];
+      double g[8][3];
+      int cubeIndex = 0;
+      for (int v = 0; v < 8; ++v) {
+        int ci = i + vOff[v][0];
+        int cj = j + vOff[v][1];
+        int ck = k + vOff[v][2];
+        p[v][0] = origin[0] + ci * spacing[0];
+        p[v][1] = origin[1] + cj * spacing[1];
+        p[v][2] = origin[2] + ck * spacing[2];
+        vtkIdType ptId = ci + dims[0] * (cj + dims[1] * ck);
+        s[v] = scalars->GetTuple1(ptId);
+        if (s[v] >= Isovalue) cubeIndex |= (1 << v);
+        if (ComputeNormals) gradient(scalars, dims, spacing, ci, cj, ck, g[v]);
+      }
+
+      if (edgeTable[cubeIndex] == 0) continue;
+
+      double ep[12][3];
+      double en[12][3];
+      for (int e = 0; e < 12; ++e) {
+        if (!(edgeTable[cubeIndex] & (1 << e))) continue;
+        int a = edgeVerts[e][0], b = edgeVerts[e][1];
+        interpolate(p[a], p[b], s[a], s[b], Isovalue, ep[e]);
+        if (ComputeNormals) {
+          double denom = s[b] - s[a];
+          double t = (std::abs(denom) < 1e-10) ? 0.5 : (Isovalue - s[a]) / denom;
+          for (int d = 0; d < 3; ++d) en[e][d] = g[a][d] + t * (g[b][d] - g[a][d]);
+        }
+      }
+
+      for (int t = 0; triTable[cubeIndex][t] != -1; t += 3) {
+        vtkIdType tri[3];
+        for (int v = 0; v < 3; ++v) {
+          int e = triTable[cubeIndex][t + v];
+          tri[v] = data.Points->InsertNextPoint(ep[e]);
+          if (ComputeNormals) {
+            double nx = en[e][0], ny = en[e][1], nz = en[e][2];
+            double len = std::sqrt(nx*nx + ny*ny + nz*nz);
+            if (len > 1e-10) { nx /= len; ny /= len; nz /= len; }
+            data.Normals->InsertNextTuple3(nx, ny, nz);
+          }
+        }
+        data.Polys->InsertNextCell(3, tri);
+      }
+    }
+  }
+
+  void Reduce() {
+    vtkNew<vtkAppendPolyData> append;
+    for (auto it = this->TLData.begin(); it != this->TLData.end(); ++it) {
+      if (it->Points->GetNumberOfPoints() > 0) {
+        vtkNew<vtkPolyData> pd;
+        pd->SetPoints(it->Points);
+        pd->SetPolys(it->Polys);
+        if (ComputeNormals) pd->GetPointData()->SetNormals(it->Normals);
+        append->AddInputData(pd);
+      }
+    }
+    append->Update();
+    
+    // Use vtkCleanPolyData to emulate MergePoints
+    vtkNew<vtkCleanPolyData> cleaner;
+    cleaner->SetInputData(append->GetOutput());
+    cleaner->Update();
+    
+    this->Output->ShallowCopy(cleaner->GetOutput());
+  }
+};
 
 int vtkVISMarchingCubes::RequestData(
   vtkInformation*,
@@ -129,6 +251,23 @@ int vtkVISMarchingCubes::RequestData(
   }
 
   const double iso = this->Isovalue;
+
+  if (this->UseParallel && !this->UseSpanSpace && !this->ComputeTopologicallyCorrect)
+  {
+    ParallelMCWorker worker;
+    worker.Input = input;
+    worker.Output = output;
+    worker.Isovalue = iso;
+    worker.ComputeNormals = this->ComputeNormals;
+    worker.dims[0] = dims[0]; worker.dims[1] = dims[1]; worker.dims[2] = dims[2];
+    worker.origin[0] = origin[0]; worker.origin[1] = origin[1]; worker.origin[2] = origin[2];
+    worker.spacing[0] = spacing[0]; worker.spacing[1] = spacing[1]; worker.spacing[2] = spacing[2];
+    worker.scalars = scalars;
+    
+    vtkIdType numCells = static_cast<vtkIdType>(dims[0] - 1) * (dims[1] - 1) * (dims[2] - 1);
+    vtkSMPTools::For(0, numCells, worker);
+    return 1;
+  }
 
   auto processCell = [&](int i, int j, int k) {
     // gather corner scalars + positions
@@ -202,6 +341,23 @@ int vtkVISMarchingCubes::RequestData(
       polys->InsertNextCell(3, tri);
     }
   };
+
+  if (this->UseParallel && !this->UseSpanSpace && !this->ComputeTopologicallyCorrect)
+  {
+    ParallelMCWorker worker;
+    worker.Input = input;
+    worker.Output = output;
+    worker.Isovalue = this->Isovalue;
+    worker.ComputeNormals = this->ComputeNormals;
+    worker.dims[0] = dims[0]; worker.dims[1] = dims[1]; worker.dims[2] = dims[2];
+    worker.origin[0] = origin[0]; worker.origin[1] = origin[1]; worker.origin[2] = origin[2];
+    worker.spacing[0] = spacing[0]; worker.spacing[1] = spacing[1]; worker.spacing[2] = spacing[2];
+    worker.scalars = scalars;
+    
+    vtkIdType numCells = static_cast<vtkIdType>(dims[0] - 1) * (dims[1] - 1) * (dims[2] - 1);
+    vtkSMPTools::For(0, numCells, worker);
+    return 1;
+  }
 
   if (this->UseSpanSpace)
   {

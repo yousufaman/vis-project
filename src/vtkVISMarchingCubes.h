@@ -39,6 +39,18 @@ public:
   vtkBooleanMacro(UseSpanSpace, bool);
   ///@}
 
+  ///@{ Flag to resolve topological ambiguities (Lewiner MC33).
+  vtkSetMacro(ComputeTopologicallyCorrect, bool);
+  vtkGetMacro(ComputeTopologicallyCorrect, bool);
+  vtkBooleanMacro(ComputeTopologicallyCorrect, bool);
+  ///@}
+
+  ///@{ Flag to enable multithreaded extraction via vtkSMPTools.
+  vtkSetMacro(UseParallel, bool);
+  vtkGetMacro(UseParallel, bool);
+  vtkBooleanMacro(UseParallel, bool);
+  ///@}
+
 protected:
   vtkVISMarchingCubes();
   ~vtkVISMarchingCubes() override = default;
@@ -58,6 +70,8 @@ private:
   bool ComputeNormals = true;
   bool MergePoints = true;
   bool UseSpanSpace = false;
+  bool ComputeTopologicallyCorrect = false;
+  bool UseParallel = false;
 
   struct CellSpan {
     double min_val;
